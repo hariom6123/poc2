@@ -184,7 +184,7 @@ jobs:
             ${{ runner.os }}-maven-
 
       - name: Run unit tests + JaCoCo coverage (single Maven invocation)
-        # The JaCoCo `prepare-agent`, `report`, and `check` goals are all
+        # The JaCoCo `prepare-agent`, `report`, and `check` goals are all.
         # bound inside the `coverage` profile (see pom.xml). They must all
         # run in the SAME Maven invocation: `prepare-agent` sets the
         # `-javaagent:...jacoco.agent.jar` argLine for surefire's forked
