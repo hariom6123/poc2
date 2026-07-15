@@ -39,7 +39,7 @@ on:
         type: boolean
         default: false
 
-# Tightest possible default; jobs widen as needed.
+# Tightest possible default; jobs widen as needed..
 permissions:
   contents: read
 
