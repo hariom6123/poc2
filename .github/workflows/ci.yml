@@ -58,7 +58,7 @@ env:
   DEPLOY_ENV: ${{ github.event.inputs.environment || 'dev' }}
 
 # ---------------------------------------------------------------
-# 1. BUILD  (Maven, Java 21, cached)
+# 1. BUILD  (Maven, Java 21, cached).
 # ---------------------------------------------------------------
 jobs:
   build:
