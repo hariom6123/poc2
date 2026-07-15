@@ -19,7 +19,7 @@ name: CI/CD — DevSecOps Pipeline (Build → Test → Scan → AI Review → Re
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, sonarconfig]
   pull_request:
     branches: [main, master]
   workflow_dispatch:
