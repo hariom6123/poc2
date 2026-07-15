@@ -34,6 +34,7 @@
         <!-- Minimum line coverage required by the pipeline (override per-run via
              -Djacoco.min.coverage=NN). 80% matches the DevSecOps policy. -->
         <jacoco.min.coverage>0.80</jacoco.min.coverage>
+        <sonar.organization>hariom6123</sonar.organization>
     </properties>
 
     <dependencies>
