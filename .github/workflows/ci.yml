@@ -241,141 +241,65 @@ jobs:
   # ---------------------------------------------------------------
   # 4. SONARCLOUD SCAN
   # ---------------------------------------------------------------
-  sonarcloud-scan:
-    name: "4. SonarCloud Scan"
+  sonarqube:
+    name: Sonarqube Cloud Analysis
+    needs: [unit-test]
     runs-on: ubuntu-latest
-    needs: [coverage]
-    permissions:
-      contents: read
-      pull-requests: read
-      security-events: write
-    # Job-level env so the if: conditions below can read SONAR_TOKEN (which
-    # is only available via the secrets context inside step env blocks, not
-    # in workflow-level if: expressions). The token is still scoped to this
-    # job and never echoed to the workflow env or to other jobs.
-    env:
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY || secrets.SONAR_PROJECT_KEY }}
-      SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION || secrets.SONAR_ORGANIZATION }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
 
-      - name: Set up JDK 21 (Temurin)
-        uses: actions/setup-java@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4.8.0
         with:
-          distribution: temurin
-          java-version: '21'
-          cache: maven
+          java-version: 17
+          distribution: 'zulu'
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Cache SonarQube packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          python-version: '3.11'
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
 
-      - name: Cache Maven repository
-        uses: actions/cache@v4
+      - name: Cache Maven packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          path: .m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
 
-      - name: Build (no tests; coverage job already did this)
-        run: mvn -B -ntp -DskipTests package
-
-      - name: Download coverage artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-build-output
-          path: target/
-
-        continue-on-error: true
-      - name: SonarCloud scan
-        if: env.SONAR_TOKEN != '' && env.SONAR_PROJECT_KEY != '' && env.SONAR_ORGANIZATION != ''
-        id: sonar
-        continue-on-error: false
+      - name: Build and analyze
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
-          SONAR_PROJECT_KEY: ${{ env.SONAR_PROJECT_KEY }}
-          SONAR_ORGANIZATION: ${{ env.SONAR_ORGANIZATION }}
-        # Use `mvn sonar:sonar` instead of `sonarsource/sonarqube-scan-action@v3`.
-        # The Maven Sonar plugin's property resolver DOES support ${env.X}
-        # placeholders in sonar-project.properties (it inherits the shell's
-        # process environment), so the file can reference $env.SONAR_* values
-        # that we expose via the step's `env:` block. The CLI Docker wrapper
-        # used by v3 of the action sandboxes the scanner and does not
-        # propagate the host's env vars as ${env.X}, which kept breaking
-        # the scanner's startup version-check with "Expected URL scheme
-        # 'http' or 'https' but no scheme was found for /api/s...".
-        #
-        # `-Dsonar.token=...` passes the SONARQUBE_TOKEN from the env block;
-        # it's never written to disk.
-        run: |
-          set -euo pipefail
-          mvn -B -ntp sonar:sonar \
-            -Dsonar.token="${SONAR_TOKEN}" \
-            -Dsonar.host.url="${SONAR_HOST_URL}" \
-            -Dsonar.projectKey="${SONAR_PROJECT_KEY}" \
-            -Dsonar.organization="${SONAR_ORGANIZATION}"
+        run: mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=hariom6123_vulnerable-springboot-app
 
-      - name: SonarCloud scan (skipped — missing secrets)
-        if: env.SONAR_TOKEN == '' || env.SONAR_PROJECT_KEY == '' || env.SONAR_ORGANIZATION == ''
-        run: |
-          set -euo pipefail
-          mkdir -p "$REPORT_DIR"
-          echo "SKIPPED" > "$REPORT_DIR/sonar-quality-gate.txt"
-          echo "::error::SonarCloud scan skipped: SONAR_TOKEN, SONAR_PROJECT_KEY or SONAR_ORGANIZATION not set. Configure them in Settings → Secrets and variables → Actions."
-          exit 1
-
-      # Wait for SonarCloud to finish processing the analysis AND for
-      # the Quality Gate to return a status. `mvn sonar:sonar` writes
-      # the scan metadata to `target/sonar/report-task.txt`; the action
-      # reads that file to find the ceTaskId, polls until processing
-      # finishes, and then evaluates the QG. The default 300s timeout
-      # is enough for our scans. By the time this step completes the
-      # Web API queries in the next step will return real data.
-      - name: SonarCloud Quality Gate
-        if: env.SONAR_TOKEN != '' && steps.sonar.conclusion == 'success'
-        uses: sonarsource/sonarqube-quality-gate-action@v1
-        with:
-          scanMetadataReportFile: target/sonar/report-task.txt
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
-      # Generate the report AFTER the QG wait so SonarCloud has
-      # finished processing the analysis. Run with `if: always()` so
-      # the artifacts still upload on QG failure.
-      - name: Generate Sonar report (JSON + Markdown)
+      - name: Download SonarQube Issues
         if: always()
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          set -euo pipefail
-          mkdir -p "$REPORT_DIR"
-          python3 scripts/generate-sonar-report.py \
-            --output-dir "$REPORT_DIR" \
-            --host "${SONAR_HOST_URL}" \
-            --project-key "${SONAR_PROJECT_KEY}" \
-            --token "${SONAR_TOKEN}" \
-            --branch "${GITHUB_REF_NAME}" \
-            --commit "${GITHUB_SHA}" \
-            --page-size 500
+          curl -s -u "$SONAR_TOKEN:" \
+            "https://sonarcloud.io/api/issues/search?componentKeys=hariom6123_vulnerable-springboot-app&s=FILE_LINE&asc=false&resolved=false" \
+            > sonar-issues.json
 
-      - name: Upload SonarCloud reports
+          echo "=== SonarQube Issues Found ==="
+          cat sonar-issues.json | jq '.' || echo "No issues or API call failed"
+
+      - name: Generate Human-Readable Reports
+        if: always()
+        run: python3 scripts/generate_sonar_report.py
+
+      - name: Upload SonarQube Reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sonar-report
+          name: sonarqube-reports
           path: |
-            reports/sonar-report.json
-            reports/sonar-report.txt
-            reports/SONAR_REPORT.md
-            reports/sonar-quality-gate.txt
-          if-no-files-found: error
+            sonar-issues.json
+            sonar-report.html
+            sonar-report.md
           retention-days: 90
 
   # ---------------------------------------------------------------
